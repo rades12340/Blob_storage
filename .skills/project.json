@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "defaultExportDir": ".skills/exports",
+  "pinnedSkills": [
+    "codefix",
+    "commitpush",
+    "commitpushpr",
+    "manageskill",
+    "scancommitpr",
+    "scancommitpush"
+  ],
+  "pins": {
+    "codefix": {
+      "name": "codefix",
+      "pinnedAt": "2026-06-21T21:28:21.888Z",
+      "version": "1.0.0",
+      "source": "official"
+    },
+    "commitpush": {
+      "name": "commitpush",
+      "pinnedAt": "2026-06-21T21:28:21.991Z",
+      "version": "0.1.0",
+      "source": "official"
+    },
+    "commitpushpr": {
+      "name": "commitpushpr",
+      "pinnedAt": "2026-06-21T21:28:21.783Z",
+      "version": "0.1.0",
+      "source": "official"
+    },
+    "manageskill": {
+      "name": "manageskill",
+      "pinnedAt": "2026-06-21T21:28:21.673Z",
+      "version": "0.1.0",
+      "source": "official"
+    },
+    "scancommitpr": {
+      "name": "scancommitpr",
+      "pinnedAt": "2026-06-21T21:28:22.094Z",
+      "version": "0.1.0",
+      "source": "official"
+    },
+    "scancommitpush": {
+      "name": "scancommitpush",
+      "pinnedAt": "2026-06-21T21:28:22.195Z",
+      "version": "0.1.0",
+      "source": "official"
+    }
+  },
+  "disabledSkills": [],
+  "createdAt": "2026-06-21T21:28:21.673Z",
+  "updatedAt": "2026-06-21T21:28:22.195Z"
+}

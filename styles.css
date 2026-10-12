@@ -1,0 +1,118 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap");
+
+:root {
+    font-family: "DM Sans", sans-serif;
+    color: #17221f;
+    background: #f2efe8;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    min-width: 320px;
+    min-height: 100vh;
+    margin: 0;
+    background:
+        radial-gradient(circle at top right, #d6e8dc 0, transparent 35%),
+        #f2efe8;
+}
+
+.page-shell {
+    width: min(1100px, calc(100% - 48px));
+    margin: 0 auto;
+    padding: 18vh 0;
+}
+
+.eyebrow {
+    margin: 0 0 12px;
+    color: #18735c;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+h1 {
+    max-width: 650px;
+    margin: 0 0 42px;
+    font-family: "Space Grotesk", sans-serif;
+    font-size: clamp(2.5rem, 7vw, 5.8rem);
+    line-height: 0.95;
+    letter-spacing: -0.04em;
+}
+
+.item-row {
+    display: flex;
+    gap: 12px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.item-row li {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 24px 14px;
+    border: 1px solid #b7c9be;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.64);
+    color: #18735c;
+    font-weight: 700;
+    text-align: center;
+    transition:
+        transform 160ms ease,
+        background 160ms ease,
+        color 160ms ease;
+}
+
+.avatars {
+    --hue: calc(196 + sibling-index() * 30);
+
+    display: flex;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+
+    li {
+        background: hsl(var(--hue), 60%, 50%);
+        color: #fff;
+        font-weight: 700;
+        padding: 1rem;
+        margin-inline-start: -1.6rem;
+        border-radius: 50%;
+        border: 2px solid #f2efe8;
+        z-index: calc(sibling-count() - sibling-index());
+        scale: 1;
+        transition:
+            transform 760ms ease,
+            z-index 0ms linear 760ms;
+
+        &:hover {
+            transform: scale(1.1);
+            z-index: calc(sibling-count() + 1);
+        }
+    }
+}
+
+.item-row li:hover {
+    transform: translateY(-6px);
+    background: #18735c;
+    color: #fff;
+}
+
+@media (max-width: 650px) {
+    .page-shell {
+        width: min(100% - 32px, 420px);
+        padding: 12vh 0;
+    }
+
+    .item-row {
+        flex-wrap: wrap;
+    }
+
+    .item-row li {
+        flex: 1 1 calc(33.333% - 12px);
+    }
+}
