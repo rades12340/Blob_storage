@@ -1,8 +1,5 @@
-import { afterEach, beforeAll, expect, test } from "bun:test";
+import { afterEach, beforeAll, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
     type CryptoKey,
     createLocalJWKSet,
@@ -12,11 +9,12 @@ import {
 } from "jose";
 import { startServer } from "./app";
 import { createVerifier, type Verify } from "./auth";
+import { createMemoryStore, fileKey } from "./storage";
 
 const ISSUER = "http://auth.test";
 const AUDIENCE = "blob_storage";
 
-const createdDirs: string[] = [];
+const servers: ReturnType<typeof startServer>[] = [];
 let privateKey: CryptoKey;
 let verify: Verify;
 
@@ -33,12 +31,8 @@ beforeAll(async () => {
     });
 });
 
-afterEach(async () => {
-    await Promise.all(
-        createdDirs
-            .splice(0)
-            .map((dir) => rm(dir, { recursive: true, force: true })),
-    );
+afterEach(() => {
+    for (const server of servers.splice(0)) server.stop(true);
 });
 
 function signToken(
@@ -55,16 +49,17 @@ function signToken(
         .sign(privateKey);
 }
 
-async function setup() {
-    const tempDir = await mkdtemp(join(tmpdir(), "bun-upload-test-"));
-    createdDirs.push(tempDir);
+function setup(options: { maxUploadBytes?: number } = {}) {
+    const store = createMemoryStore();
     const server = startServer({
         port: 0,
-        uploadDir: tempDir,
+        store,
         verify,
         corsOrigin: "http://app.test",
+        ...options,
     });
-    return { server, tempDir, base: `http://127.0.0.1:${server.port}` };
+    servers.push(server);
+    return { server, store, base: `http://127.0.0.1:${server.port}` };
 }
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
@@ -87,8 +82,8 @@ function upload(
     });
 }
 
-test("uploads a large file, serves it back, and rejects tampered content", async () => {
-    const { server, tempDir, base } = await setup();
+test("uploads to the store and hands out a signed download URL", async () => {
+    const { server, store, base } = setup();
     const token = await signToken("user-1");
 
     const payload = new Uint8Array(1024 * 64 + 7);
@@ -103,34 +98,91 @@ test("uploads a large file, serves it back, and rejects tampered content", async
     expect(uploadBody.name).toBe("sample.bin");
     expect(uploadBody.ownerId).toBe("user-1");
     expect(uploadBody.size).toBe(payload.byteLength);
+    expect(uploadBody.type).toBe("application/octet-stream");
     expect(uploadBody.sha256).toBe(
         createHash("sha256").update(payload).digest("hex"),
     );
+
+    const key = fileKey("user-1", uploadBody.id);
+    const stored = store.objects.get(key);
+    expect(stored?.data).toEqual(payload);
+    expect(stored?.contentDisposition).toBe(
+        "attachment; filename*=UTF-8''sample.bin",
+    );
+    expect(store.objects.has(`${key}.json`)).toBe(true);
 
     const downloadResponse = await fetch(`${base}/download/${uploadBody.id}`, {
         headers: bearer(token),
     });
     expect(downloadResponse.status).toBe(200);
-    expect(downloadResponse.headers.get("x-file-sha256")).toBe(
-        uploadBody.sha256,
-    );
-    expect(new Uint8Array(await downloadResponse.arrayBuffer())).toEqual(
-        payload,
-    );
-
-    const storagePath = join(tempDir, `${uploadBody.id}.bin`);
-    await Bun.write(storagePath, new Uint8Array([...payload, 0x00]));
-
-    const tamperedResponse = await fetch(`${base}/download/${uploadBody.id}`, {
-        headers: bearer(token),
-    });
-    expect(tamperedResponse.status).toBe(409);
+    const download = await downloadResponse.json();
+    expect(download.url).toBe(`memory://${key}?expiresIn=300`);
+    expect(download.name).toBe("sample.bin");
+    expect(download.size).toBe(payload.byteLength);
+    expect(download.sha256).toBe(uploadBody.sha256);
+    expect(Date.parse(download.expiresAt)).toBeGreaterThan(Date.now());
 
     server.stop(true);
 });
 
+test("rejects files over the size limit", async () => {
+    const { server, store, base } = setup({ maxUploadBytes: 10 });
+
+    const response = await upload(
+        base,
+        new Uint8Array(11),
+        await signToken("u"),
+    );
+    expect(response.status).toBe(413);
+    expect(store.objects.size).toBe(0);
+
+    server.stop(true);
+});
+
+test("returns 502 when the store is unavailable", async () => {
+    const { server, store, base } = setup();
+    store.put = () => Promise.reject(new Error("S3 down"));
+    const consoleError = spyOn(console, "error").mockImplementation(() => {});
+
+    const response = await upload(
+        base,
+        new Uint8Array([1]),
+        await signToken("u"),
+    );
+    expect(response.status).toBe(502);
+
+    store.readJson = () => Promise.reject(new Error("S3 down"));
+    const download = await fetch(`${base}/download/${crypto.randomUUID()}`, {
+        headers: bearer(await signToken("u")),
+    });
+    expect(download.status).toBe(502);
+    expect(consoleError).toHaveBeenCalledTimes(2);
+
+    consoleError.mockRestore();
+    server.stop(true);
+});
+
+test("returns 404 for unknown or malformed ids", async () => {
+    const { server, base } = setup();
+    const token = await signToken("u");
+
+    for (const id of [crypto.randomUUID(), "not-an-id", "..%2F..%2Fx"]) {
+        const response = await fetch(`${base}/download/${id}`, {
+            headers: bearer(token),
+        });
+        expect(response.status).toBe(404);
+    }
+
+    server.stop(true);
+});
+
+test("fileKey keeps a user inside their own prefix", () => {
+    expect(fileKey("a/b", "id")).toBe("files/a%2Fb/id");
+    expect(fileKey("..", "id")).toBe("files/%2E%2E/id");
+});
+
 test("rejects missing, expired and wrong-audience tokens", async () => {
-    const { server, base } = await setup();
+    const { server, base } = setup();
     const payload = new Uint8Array([1, 2, 3]);
 
     expect((await upload(base, payload)).status).toBe(401);
@@ -162,7 +214,7 @@ test("rejects missing, expired and wrong-audience tokens", async () => {
 });
 
 test("users can't download each other's files", async () => {
-    const { server, base } = await setup();
+    const { server, base } = setup();
     const owner = await signToken("owner");
     const other = await signToken("other");
 
@@ -179,7 +231,7 @@ test("users can't download each other's files", async () => {
 });
 
 test("CORS preflight allows the frontend origin and the Authorization header", async () => {
-    const { server, base } = await setup();
+    const { server, base } = setup();
 
     const response = await fetch(`${base}/upload`, { method: "OPTIONS" });
     expect(response.status).toBe(204);
