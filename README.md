@@ -91,7 +91,22 @@ One-time setup in the AWS console:
    S3_SECRET_ACCESS_KEY=...
    ```
 
-To develop without AWS, run MinIO locally (`docker run -p 9000:9000 -p 9001:9001 minio/minio server /data --console-address :9001`), create a bucket in its console on port 9001, and set `S3_ENDPOINT=http://localhost:9000` with MinIO's credentials.
+To develop without AWS, run a local S3-compatible server. [Adobe S3Mock](https://github.com/adobe/S3Mock) works and accepts any credentials:
+
+```bash
+docker run --rm -p 9090:9090 -e COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS=blobs adobe/s3mock
+```
+
+```bash
+# .env
+S3_ENDPOINT=http://localhost:9090
+S3_BUCKET=blobs
+S3_REGION=us-east-1
+S3_ACCESS_KEY_ID=test
+S3_SECRET_ACCESS_KEY=test
+```
+
+Remove `S3_ENDPOINT` and use the real values when switching to AWS. S3Mock keeps files only while the container runs, and doesn't check signatures. (MinIO's Docker images are no longer publicly available.)
 
 ## Using the prime worker
 
