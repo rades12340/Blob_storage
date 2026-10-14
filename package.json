@@ -23,5 +23,8 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "jose": "^6.2.12"
+  }
 }
