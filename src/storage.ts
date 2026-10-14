@@ -1,0 +1,59 @@
+import type { S3Client } from "bun";
+
+type PutOptions = { type: string; contentDisposition?: string };
+
+// Where files live. The routes only talk to this, so tests can swap S3 for
+// an in-memory map.
+export type FileStore = {
+    put(
+        key: string,
+        data: Uint8Array | string,
+        opts: PutOptions,
+    ): Promise<void>;
+    // null when the object doesn't exist.
+    readJson<T>(key: string): Promise<T | null>;
+    signedUrl(key: string, expiresIn: number): string;
+};
+
+// Every object sits under its owner's prefix, so looking a file up under the
+// caller's prefix is also the ownership check. encodeURIComponent leaves "."
+// alone, so ".." is escaped by hand to keep it from reading as a path segment.
+export function fileKey(ownerId: string, id: string): string {
+    const owner = encodeURIComponent(ownerId).replaceAll(".", "%2E");
+    return `files/${owner}/${id}`;
+}
+
+export function createS3Store(client: S3Client): FileStore {
+    return {
+        async put(key, data, opts) {
+            await client.write(key, data, opts);
+        },
+        async readJson(key) {
+            const file = client.file(key);
+            return (await file.exists()) ? file.json() : null;
+        },
+        signedUrl(key, expiresIn) {
+            return client.presign(key, { expiresIn, method: "GET" });
+        },
+    };
+}
+
+type MemoryObject = PutOptions & { data: Uint8Array | string };
+
+export function createMemoryStore() {
+    const objects = new Map<string, MemoryObject>();
+    const store: FileStore & { objects: Map<string, MemoryObject> } = {
+        objects,
+        async put(key, data, opts) {
+            objects.set(key, { data, ...opts });
+        },
+        async readJson(key) {
+            const object = objects.get(key);
+            return object ? JSON.parse(String(object.data)) : null;
+        },
+        signedUrl(key, expiresIn) {
+            return `memory://${key}?expiresIn=${expiresIn}`;
+        },
+    };
+    return store;
+}
