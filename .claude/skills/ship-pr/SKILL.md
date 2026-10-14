@@ -70,7 +70,11 @@ The husky hooks run on commit (lint-staged with Biome) and on push (typecheck an
 
 ```bash
 git push -u origin HEAD
-gh pr create --base main --label <label> --title "<subject>" --body "$(cat <<'EOF'
+```
+
+Write the PR description to a file in your scratchpad (or another temp dir) with the Write tool, then pass it with `--body-file`:
+
+```markdown
 ## Summary
 - <what changed and why, 2–4 bullets>
 
@@ -80,11 +84,17 @@ Closes #N
 - <commands actually run and their results>
 
 <PR attribution line from the system reminder, if any>
-EOF
-)"
 ```
 
+```bash
+gh pr create --base main --label <label> --title "<subject>" --body-file <path-to-body.md>
+```
+
+Don't inline the description with `--body "$(cat <<'EOF' … EOF)"`. macOS ships bash 3.2, which misparses a heredoc inside `$(…)` when the text contains parentheses or backticks, and PR descriptions usually do. The command then fails with "bad substitution". A file avoids shell quoting entirely.
+
 Only list tests in Testing that you actually ran.
+
+If the push fails with a GitHub server error such as `Internal Server Error`, retry it once. These are usually temporary and don't mean anything is wrong with the branch.
 
 ### 7. Watch the checks
 
@@ -102,9 +112,8 @@ When a PR fails `labels` or `issue`, such as an older PR opened before these che
 
 ```bash
 gh pr edit <n> --add-label <label>
-gh pr edit <n> --body "$(gh pr view <n> --json body -q .body)
-
-Closes #N"
+gh pr view <n> --json body -q .body > <tmp>/body.md   # then append "Closes #N" to the file
+gh pr edit <n> --body-file <tmp>/body.md
 ```
 
 Editing the label or description re-runs `pr-checks` automatically, because the workflow listens for `labeled` and `edited` events. If the PR's branch was created before `pr-checks.yml` reached `main`, the checks won't run until it's updated from `main`: use `gh pr update-branch <n>` or merge `main` into the branch.
