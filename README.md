@@ -100,6 +100,21 @@ GITHUB_REPOSITORY=rades12340/Blob_storage GITHUB_TOKEN=$(gh auth token) \
   PR_TITLE="..." PR_BODY="Closes #1" HEAD_REF=feat/x bun scripts/check-issue.ts
 ```
 
+## Releases
+
+Pushing a version tag runs `.github/workflows/release.yml`. It re-runs the CI checks (lint, typecheck, test) on the tagged commit and, only if they pass, publishes a GitHub release:
+
+```bash
+git switch main && git pull
+git tag v1.1.0
+git push origin v1.1.0
+```
+
+- Use semver: bump PATCH for fixes, MINOR for features, MAJOR for breaking changes.
+- A tag with a suffix, such as `v1.2.0-beta.1`, is published as a pre-release.
+- Release notes are generated from merged PRs and grouped by label (see `.github/release.yml`).
+- If CI fails, no release is created. Fix the problem, delete the tag (`git push --delete origin v1.1.0 && git tag -d v1.1.0`) and tag again.
+
 ## Known issues
 
 - Uploads are read fully into memory before being written to disk, so very large files use a lot of RAM.
