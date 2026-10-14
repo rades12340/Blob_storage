@@ -21,13 +21,18 @@ function verifierFromEnv(): Verify {
 
 // S3Client reads S3_REGION, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY and
 // S3_ENDPOINT (or their AWS_* equivalents) from the environment itself.
+// S3_PUBLIC_ENDPOINT, if set, is the address clients use to reach S3.
 function storeFromEnv(): FileStore {
     if (!process.env.S3_BUCKET && !process.env.AWS_BUCKET) {
         throw new Error(
             "S3_BUCKET is not set. Add the S3_* variables to .env (see README).",
         );
     }
-    return createS3Store(new S3Client());
+    const publicEndpoint = process.env.S3_PUBLIC_ENDPOINT;
+    return createS3Store(
+        new S3Client(),
+        publicEndpoint ? new S3Client({ endpoint: publicEndpoint }) : undefined,
+    );
 }
 
 const numberFromEnv = (name: string, fallback: number) =>
