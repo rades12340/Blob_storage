@@ -131,6 +131,30 @@ S3_SECRET_ACCESS_KEY=test
 
 Remove `S3_ENDPOINT` and use the real values when switching to AWS. S3Mock keeps files only while the container runs, and doesn't check signatures. (MinIO's Docker images are no longer publicly available.)
 
+### End-to-end check
+
+`bun run e2e` runs `scripts/e2e.ts` against real running services instead of the in-memory store. It registers two users in auth_service, then checks token rejection (none, garbage, forged key), the size limit, a 1 MB upload and its presigned download (same SHA-256), ownership, unknown ids and CORS. It prints `PASS`/`FAIL` per check and exits non-zero if any fail.
+
+Start three things first:
+
+```bash
+# 1. S3Mock (see above), bucket "blobs"
+# 2. auth_service on :4000, in its own checkout
+bun run gen-key >> .env   # once, if .env has no AUTH_PRIVATE_KEY yet
+COOKIE_SECURE=false bun src/app.ts
+# 3. this server on :3000, pointed at S3Mock
+S3_ENDPOINT=http://localhost:9090 S3_BUCKET=blobs S3_REGION=us-east-1 \
+  S3_ACCESS_KEY_ID=test S3_SECRET_ACCESS_KEY=test MAX_UPLOAD_BYTES=2000000 bun src/app.ts
+```
+
+Then run it with the same `MAX_UPLOAD_BYTES`. Setting `E2E_S3_URL` also checks that both objects landed under `files/<user>/` in the bucket:
+
+```bash
+MAX_UPLOAD_BYTES=2000000 E2E_S3_URL=http://localhost:9090 bun run e2e
+```
+
+`E2E_AUTH_URL` and `E2E_BLOB_URL` override the default ports. S3Mock doesn't check signatures, so this doesn't prove that download links expire.
+
 ## Using the prime worker
 
 ```ts
