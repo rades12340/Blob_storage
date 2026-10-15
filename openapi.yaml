@@ -1,0 +1,186 @@
+openapi: 3.1.0
+info:
+  title: blob_service
+  version: 1.0.0
+  description: |
+    Stores files in S3 for users signed in through auth_service.
+
+    **Authorize first:** get an access token from auth_service (`POST /login` on
+    port 4000), click **Authorize** and paste it. Tokens expire after 15 minutes.
+
+    Each file belongs to the user who uploaded it. Another user's file id
+    behaves exactly like an unknown id (404).
+servers:
+  - url: http://localhost:3000
+    description: Local (bun run dev or docker compose)
+
+security:
+  - bearerAuth: []
+
+paths:
+  /upload:
+    post:
+      summary: Upload a file
+      description: |
+        Stores the file in S3 under the caller's prefix and records its name,
+        size, type and SHA-256. Files larger than `MAX_UPLOAD_BYTES`
+        (default 25 MB) are rejected.
+      operationId: uploadFile
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoredFile"
+        "400":
+          description: The request has no `file` field.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Missing 'file' field
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          description: The file is larger than `MAX_UPLOAD_BYTES`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: File is larger than 26214400 bytes
+        "502":
+          $ref: "#/components/responses/StorageUnavailable"
+
+  /download/{id}:
+    get:
+      summary: Get a download link
+      description: |
+        Returns a presigned S3 URL for the file instead of the file itself.
+        Open or fetch `url` (no Authorization header needed) before
+        `expiresAt`; the lifetime is `DOWNLOAD_URL_TTL` seconds (default 300).
+        The file downloads under its original name.
+      operationId: getDownloadLink
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The `id` returned by `POST /upload`.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: A short-lived link to the file.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DownloadLink"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id, malformed id, or a file owned by another user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Not found
+        "502":
+          $ref: "#/components/responses/StorageUnavailable"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token from auth_service `POST /login`.
+
+  responses:
+    Unauthorized:
+      description: Missing, invalid or expired access token.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: Unauthorized
+    StorageUnavailable:
+      description: S3 could not be reached. The server log has the cause.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: Storage unavailable
+
+  schemas:
+    StoredFile:
+      type: object
+      required: [id, ownerId, name, size, type, sha256, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        ownerId:
+          type: string
+          description: The `sub` of the uploader's access token.
+        name:
+          type: string
+          example: holiday photo.png
+        size:
+          type: integer
+          description: Bytes.
+          example: 200000
+        type:
+          type: string
+          description: Content type sent with the upload.
+          example: image/png
+        sha256:
+          type: string
+          description: Hex SHA-256 of the file, computed on upload.
+        createdAt:
+          type: string
+          format: date-time
+
+    DownloadLink:
+      type: object
+      required: [url, expiresAt, name, size, type, sha256]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Presigned S3 GET URL.
+        expiresAt:
+          type: string
+          format: date-time
+        name:
+          type: string
+        size:
+          type: integer
+        type:
+          type: string
+        sha256:
+          type: string
+          description: Compare with the downloaded bytes to verify them.
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
