@@ -26,7 +26,8 @@ Bun loads `.env` automatically, and `.env` is ignored by git.
 | `S3_BUCKET` | **required** | Bucket that holds the files. |
 | `S3_REGION` | — | Bucket region, e.g. `eu-central-1`. |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | **required** | Access key of the IAM user below. The `AWS_*` names work too. |
-| `S3_ENDPOINT` | AWS | Set only for an S3-compatible server such as MinIO. |
+| `S3_ENDPOINT` | AWS | Set only for a local S3-compatible server such as S3Mock. |
+| `S3_PUBLIC_ENDPOINT` | `S3_ENDPOINT` | Address that clients use to reach S3, if it differs from the server's (Docker). Download links are signed for it. |
 | `MAX_UPLOAD_BYTES` | `26214400` (25 MB) | Larger uploads get `413`. |
 | `DOWNLOAD_URL_TTL` | `300` | Seconds a download link stays valid. |
 | `AUTH_ISSUER` | `http://localhost:4000` | Expected `iss` of access tokens. |
@@ -41,6 +42,7 @@ Bun loads `.env` automatically, and `.env` is ignored by git.
 | `src/app.ts` | `Bun.serve()` server exported as `startServer({ port, store, verify, corsOrigin, maxUploadBytes, downloadUrlTtl })`. Any unmatched path serves `index.html`. |
 | `src/routes.ts` | Route table for the server: `/styles.css` and the file upload/download API (see below). |
 | `src/storage.ts` | `FileStore` interface with an S3 implementation (`createS3Store`, using Bun's built-in `S3Client`) and an in-memory one for tests. `fileKey(owner, id)` builds `files/<owner>/<id>`. |
+| `Dockerfile`, `compose.yaml` | Container image and the local Docker stack (see [Run with Docker](#run-with-docker)). |
 | `src/auth.ts` | `createVerifier(...)`: checks the `Authorization: Bearer` JWT against auth_service's public keys. |
 | `index.html`, `styles.css` | Static "Six things in a row" demo page (a row of six items plus a stack of avatars). |
 | `src/worker.ts` | Web Worker that counts the prime numbers up to a given `limit` and posts back `{ limit, primes, ms }`. Nothing uses it yet. |
@@ -66,6 +68,27 @@ curl -H "Authorization: Bearer $TOKEN" -F file=@some.pdf http://localhost:3000/u
 URL=$(curl -s -H "Authorization: Bearer $TOKEN" http://localhost:3000/download/<id> | jq -r .url)
 curl -OJ "$URL"
 ```
+
+### Run with Docker
+
+Each repo has its own `compose.yaml`. auth_service's stack creates a shared Docker network called `blob-storage`, and this stack joins it, so start auth first:
+
+```bash
+cd ../auth_service && docker compose up -d --build   # http://localhost:4000
+cd ../blob_service && docker compose up -d --build   # http://localhost:3000, S3Mock on :9090
+```
+
+auth_service needs `AUTH_PRIVATE_KEY` in its `.env` (see its README). This stack needs no `.env`: the S3 settings are in `compose.yaml`.
+
+Then use the curl commands from [File API](#file-api). Register first with `curl -X POST localhost:4000/register -H 'content-type: application/json' -d '{"email":"me@example.com","password":"password123"}'`.
+
+| To | Run |
+| --- | --- |
+| Follow the logs | `docker compose logs -f` (in either repo) |
+| Rebuild after a code change | `docker compose up -d --build` |
+| Stop | `docker compose down` (add `-v` in auth_service to also delete its users) |
+
+Inside Docker, the server reaches S3 at `http://s3:9090`, but your machine reaches it at `localhost:9090`. `S3_PUBLIC_ENDPOINT` makes download links use the second address. The server also fetches auth's public keys from `http://auth:4000`, while tokens still name `http://localhost:4000` as their issuer.
 
 ### S3 setup
 

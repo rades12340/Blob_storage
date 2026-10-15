@@ -23,7 +23,14 @@ export function fileKey(ownerId: string, id: string): string {
     return `files/${owner}/${id}`;
 }
 
-export function createS3Store(client: S3Client): FileStore {
+// `presignClient` signs download URLs. Pass one with a different endpoint
+// when clients reach S3 at another address than the server does (e.g. Docker:
+// the server uses http://s3:9090, the browser http://localhost:9090).
+// Signing is local, so it never makes a request.
+export function createS3Store(
+    client: S3Client,
+    presignClient: S3Client = client,
+): FileStore {
     return {
         async put(key, data, opts) {
             await client.write(key, data, opts);
@@ -33,7 +40,7 @@ export function createS3Store(client: S3Client): FileStore {
             return (await file.exists()) ? file.json() : null;
         },
         signedUrl(key, expiresIn) {
-            return client.presign(key, { expiresIn, method: "GET" });
+            return presignClient.presign(key, { expiresIn, method: "GET" });
         },
     };
 }

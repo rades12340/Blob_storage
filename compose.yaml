@@ -1,0 +1,40 @@
+# Local stack: blob_service + a local S3 server.
+# Needs auth_service's stack running first (cd ../auth_service && docker compose up),
+# which creates the shared "blob-storage" network. See README "Run with Docker".
+name: blob-service
+
+services:
+  s3:
+    image: adobe/s3mock:4.7.0
+    environment:
+      COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS: blobs
+    ports:
+      - "9090:9090"
+
+  blob:
+    build: .
+    depends_on:
+      - s3
+    ports:
+      - "3000:3000"
+    environment:
+      # The server reaches S3 by its service name; download links are signed
+      # for localhost, which is where your browser or curl reaches it.
+      S3_ENDPOINT: http://s3:9090
+      S3_PUBLIC_ENDPOINT: http://localhost:9090
+      S3_BUCKET: blobs
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY_ID: test
+      S3_SECRET_ACCESS_KEY: test
+      # Tokens are issued as localhost:4000 (where you log in), but the public
+      # keys are fetched from the auth container over the shared network.
+      AUTH_ISSUER: http://localhost:4000
+      AUTH_JWKS_URL: http://auth:4000/.well-known/jwks.json
+      CORS_ORIGIN: http://localhost:5173
+    networks:
+      - default
+      - blob-storage
+
+networks:
+  blob-storage:
+    external: true
