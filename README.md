@@ -43,6 +43,7 @@ Bun loads `.env` automatically, and `.env` is ignored by git.
 | `src/routes.ts` | Route table for the server: `/styles.css` and the file upload/download API (see below). |
 | `src/storage.ts` | `FileStore` interface with an S3 implementation (`createS3Store`, using Bun's built-in `S3Client`) and an in-memory one for tests. `fileKey(owner, id)` builds `files/<owner>/<id>`. |
 | `Dockerfile`, `compose.yaml` | Container image and the local Docker stack (see [Run with Docker](#run-with-docker)). |
+| `openapi.yaml`, `src/docs.ts` | OpenAPI spec and the `/docs` + `/openapi.json` routes. `src/openapi.test.ts` fails if a route is added or removed without updating the spec. |
 | `src/auth.ts` | `createVerifier(...)`: checks the `Authorization: Bearer` JWT against auth_service's public keys. |
 | `index.html`, `styles.css` | Static "Six things in a row" demo page (a row of six items plus a stack of avatars). |
 | `src/worker.ts` | Web Worker that counts the prime numbers up to a given `limit` and posts back `{ limit, primes, ms }`. Nothing uses it yet. |
@@ -51,6 +52,8 @@ Bun loads `.env` automatically, and `.env` is ignored by git.
 | `.husky/`, `.github/workflows/ci.yml` | Git hooks and CI (see [Checks](#checks)). |
 
 ## File API
+
+Full reference with request/response schemas: **http://localhost:3000/docs** (Swagger UI). Click **Authorize**, paste an access token from auth_service, and use **Try it out**. The raw spec is `openapi.yaml`, also served at `/openapi.json`.
 
 | Method & path | Description |
 | --- | --- |

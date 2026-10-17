@@ -6,7 +6,7 @@ WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production --ignore-scripts
 
-COPY tsconfig.json index.html styles.css ./
+COPY tsconfig.json index.html styles.css openapi.yaml ./
 COPY src ./src
 
 USER bun

@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import type { Verify } from "./auth";
+import { docsRoutes } from "./docs";
 import { type FileStore, fileKey } from "./storage";
 
 const idPattern = /^[0-9a-f-]{36}$/;
@@ -64,6 +65,8 @@ export function createRoutes({
     }
 
     return {
+        ...docsRoutes,
+
         "/styles.css": new Response(Bun.file(join(rootDir, "styles.css")), {
             headers: { "Content-Type": "text/css" },
         }),
