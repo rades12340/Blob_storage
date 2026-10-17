@@ -84,11 +84,11 @@ cd ../blob_service && docker compose up -d --build   # http://localhost:3000, S3
 
 auth_service needs `AUTH_PRIVATE_KEY` in its `.env` (see its README). This stack needs no `.env`: the S3 settings are in `compose.yaml`.
 
-For the web app, also start [api_gateway](https://github.com/rades12340/api_gateway) and [blob_frontend](https://github.com/rades12340/blob_frontend), then open http://localhost:5173:
+For the web app, also start [Blob_api_gateway](https://github.com/rades12340/Blob_api_gateway) and [Blob_frontend](https://github.com/rades12340/Blob_frontend), then open http://localhost:5173:
 
 ```bash
-cd ../api_gateway   && docker compose up -d --build   # :8080, routes /api/auth/* and /api/blob/*
-cd ../blob_frontend && docker compose up -d --build   # :5173
+cd ../Blob_api_gateway && docker compose up -d --build   # :8080, routes /api/auth/* and /api/blob/*
+cd ../Blob_frontend && docker compose up -d --build   # :5173
 ```
 
 The frontend only talks to the gateway, which forwards `/api/blob/<path>` here as `/<path>` (for example `/api/blob/files` → `GET /files`).
