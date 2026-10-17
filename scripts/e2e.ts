@@ -157,6 +157,24 @@ check(
     file.headers.get("content-disposition"),
 );
 
+const listIds = async (token: string) => {
+    const response = await fetch(`${BLOB}/files`, {
+        headers: { authorization: `Bearer ${token}` },
+    });
+    const { files } = await response.json();
+    return files.map((f: { id: string }) => f.id);
+};
+check(
+    "GET /files lists the upload",
+    true,
+    (await listIds(aliceToken)).includes(record.id),
+);
+check(
+    "bob's list excludes it",
+    false,
+    (await listIds(bobToken)).includes(record.id),
+);
+
 check(
     "bob downloads alice's file",
     404,

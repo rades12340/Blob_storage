@@ -65,6 +65,31 @@ paths:
         "502":
           $ref: "#/components/responses/StorageUnavailable"
 
+  /files:
+    get:
+      summary: List your files
+      description: |
+        Returns every file the caller has uploaded, newest first. Other users'
+        files are never included.
+      operationId: listFiles
+      responses:
+        "200":
+          description: The caller's files.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [files]
+                properties:
+                  files:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/StoredFile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "502":
+          $ref: "#/components/responses/StorageUnavailable"
+
   /download/{id}:
     get:
       summary: Get a download link

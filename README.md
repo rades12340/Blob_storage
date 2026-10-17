@@ -58,9 +58,10 @@ Full reference with request/response schemas: **http://localhost:3000/docs** (Sw
 | Method & path | Description |
 | --- | --- |
 | `POST /upload` | Multipart form with a `file` field. Stores the file in S3 as owned by the token's user. Returns `{ id, ownerId, name, size, type, sha256, createdAt }`. `413` if the file is over `MAX_UPLOAD_BYTES`. |
+| `GET /files` | Returns `{ files: [...] }`: every file the caller uploaded (same fields as the upload response), newest first. |
 | `GET /download/:id` | Returns `{ url, expiresAt, name, size, type, sha256 }`, where `url` is a presigned S3 link that downloads the file and expires after `DOWNLOAD_URL_TTL` seconds. `404` if the id is unknown or the file belongs to another user. |
 
-Both routes need `Authorization: Bearer <access token>` and return `401` without a valid one. If S3 can't be reached they return `502`.
+All three routes need `Authorization: Bearer <access token>` and return `401` without a valid one. If S3 can't be reached they return `502`.
 
 Each upload is stored as two objects: `files/<user>/<id>` (the bytes) and `files/<user>/<id>.json` (the record above). The `sha256` is computed when the file is uploaded. Downloads go straight from S3 to the client, so the server doesn't re-check it; a client can compare it with the downloaded bytes.
 
@@ -102,11 +103,19 @@ One-time setup in the AWS console:
    ```json
    {
      "Version": "2012-10-17",
-     "Statement": [{
-       "Effect": "Allow",
-       "Action": ["s3:PutObject", "s3:GetObject"],
-       "Resource": "arn:aws:s3:::<bucket>/files/*"
-     }]
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Action": ["s3:PutObject", "s3:GetObject"],
+         "Resource": "arn:aws:s3:::<bucket>/files/*"
+       },
+       {
+         "Effect": "Allow",
+         "Action": "s3:ListBucket",
+         "Resource": "arn:aws:s3:::<bucket>",
+         "Condition": { "StringLike": { "s3:prefix": "files/*" } }
+       }
+     ]
    }
    ```
 3. On that user, **Security credentials → Create access key**, then put the values in `.env`:
@@ -136,7 +145,7 @@ Remove `S3_ENDPOINT` and use the real values when switching to AWS. S3Mock keeps
 
 ### End-to-end check
 
-`bun run e2e` runs `scripts/e2e.ts` against real running services instead of the in-memory store. It registers two users in auth_service, then checks token rejection (none, garbage, forged key), the size limit, a 1 MB upload and its presigned download (same SHA-256), ownership, unknown ids and CORS. It prints `PASS`/`FAIL` per check and exits non-zero if any fail.
+`bun run e2e` runs `scripts/e2e.ts` against real running services instead of the in-memory store. It registers two users in auth_service, then checks token rejection (none, garbage, forged key), the size limit, a 1 MB upload and its presigned download (same SHA-256), the file list, ownership, unknown ids and CORS. It prints `PASS`/`FAIL` per check and exits non-zero if any fail.
 
 Start three things first:
 
