@@ -12,6 +12,8 @@ export type FileStore = {
     ): Promise<void>;
     // null when the object doesn't exist.
     readJson<T>(key: string): Promise<T | null>;
+    // Every key that starts with `prefix`.
+    list(prefix: string): Promise<string[]>;
     signedUrl(key: string, expiresIn: number): string;
 };
 
@@ -39,6 +41,18 @@ export function createS3Store(
             const file = client.file(key);
             return (await file.exists()) ? file.json() : null;
         },
+        async list(prefix) {
+            const keys: string[] = [];
+            let continuationToken: string | undefined;
+            do {
+                const page = await client.list({ prefix, continuationToken });
+                for (const object of page.contents ?? []) keys.push(object.key);
+                continuationToken = page.isTruncated
+                    ? page.nextContinuationToken
+                    : undefined;
+            } while (continuationToken);
+            return keys;
+        },
         signedUrl(key, expiresIn) {
             return presignClient.presign(key, { expiresIn, method: "GET" });
         },
@@ -57,6 +71,9 @@ export function createMemoryStore() {
         async readJson(key) {
             const object = objects.get(key);
             return object ? JSON.parse(String(object.data)) : null;
+        },
+        async list(prefix) {
+            return [...objects.keys()].filter((key) => key.startsWith(prefix));
         },
         signedUrl(key, expiresIn) {
             return `memory://${key}?expiresIn=${expiresIn}`;

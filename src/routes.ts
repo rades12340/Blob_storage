@@ -125,6 +125,28 @@ export function createRoutes({
             }),
         },
 
+        "/files": {
+            OPTIONS: preflight,
+            GET: withAuth(async (_request: Request, userId) => {
+                let files: StoredFile[];
+                try {
+                    // fileKey with an empty id is the caller's own prefix,
+                    // so only their records are listed.
+                    const keys = await store.list(fileKey(userId, ""));
+                    const records = await Promise.all(
+                        keys
+                            .filter((key) => key.endsWith(".json"))
+                            .map((key) => store.readJson<StoredFile>(key)),
+                    );
+                    files = records.filter((meta) => meta !== null);
+                } catch (error) {
+                    return storageUnavailable(error);
+                }
+                files.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+                return Response.json({ files });
+            }),
+        },
+
         "/download/:id": {
             OPTIONS: preflight,
             GET: withAuth(

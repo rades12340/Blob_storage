@@ -68,12 +68,13 @@ function upload(
     base: string,
     payload: Uint8Array<ArrayBuffer>,
     token?: string,
+    name = "sample.bin",
 ) {
     const formData = new FormData();
     formData.set(
         "file",
         new Blob([payload], { type: "application/octet-stream" }),
-        "sample.bin",
+        name,
     );
     return fetch(`${base}/upload`, {
         method: "POST",
@@ -156,9 +157,55 @@ test("returns 502 when the store is unavailable", async () => {
         headers: bearer(await signToken("u")),
     });
     expect(download.status).toBe(502);
-    expect(consoleError).toHaveBeenCalledTimes(2);
+
+    store.list = () => Promise.reject(new Error("S3 down"));
+    const list = await fetch(`${base}/files`, {
+        headers: bearer(await signToken("u")),
+    });
+    expect(list.status).toBe(502);
+    expect(consoleError).toHaveBeenCalledTimes(3);
 
     consoleError.mockRestore();
+    server.stop(true);
+});
+
+test("lists only the caller's files, newest first", async () => {
+    const { server, base } = setup();
+    const owner = await signToken("owner");
+    const other = await signToken("other");
+
+    const listNames = async (token: string) => {
+        const response = await fetch(`${base}/files`, {
+            headers: bearer(token),
+        });
+        expect(response.status).toBe(200);
+        const { files } = await response.json();
+        return files.map((file: { name: string }) => file.name);
+    };
+
+    expect(await listNames(owner)).toEqual([]);
+
+    await upload(base, new Uint8Array([1]), owner, "first.txt");
+    await Bun.sleep(5);
+    await upload(base, new Uint8Array([2]), owner, "second.txt");
+    await upload(base, new Uint8Array([3]), other, "theirs.txt");
+
+    expect(await listNames(owner)).toEqual(["second.txt", "first.txt"]);
+    expect(await listNames(other)).toEqual(["theirs.txt"]);
+    expect((await fetch(`${base}/files`)).status).toBe(401);
+
+    server.stop(true);
+});
+
+test("a user whose id prefixes another's sees only their own files", async () => {
+    const { server, base } = setup();
+    await upload(base, new Uint8Array([1]), await signToken("ab"), "ab.txt");
+
+    const response = await fetch(`${base}/files`, {
+        headers: bearer(await signToken("a")),
+    });
+    expect((await response.json()).files).toEqual([]);
+
     server.stop(true);
 });
 
