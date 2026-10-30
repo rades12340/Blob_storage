@@ -2,6 +2,8 @@ import { join } from "node:path";
 import { S3Client } from "bun";
 import { createRemoteJWKSet } from "jose";
 import { createVerifier, type Verify } from "./auth";
+import { createLogger, type Logger } from "./log";
+import { withRequestLog } from "./requestLog";
 import { createRoutes } from "./routes";
 import { createS3Store, type FileStore } from "./storage";
 
@@ -45,6 +47,7 @@ export function startServer({
     corsOrigin = process.env.CORS_ORIGIN ?? "http://localhost:5173",
     maxUploadBytes = numberFromEnv("MAX_UPLOAD_BYTES", 25 * 1024 * 1024),
     downloadUrlTtl = numberFromEnv("DOWNLOAD_URL_TTL", 300),
+    log = createLogger({ service: "blob" }),
 }: {
     port?: number;
     store?: FileStore;
@@ -52,6 +55,7 @@ export function startServer({
     corsOrigin?: string;
     maxUploadBytes?: number;
     downloadUrlTtl?: number;
+    log?: Logger;
 } = {}) {
     return Bun.serve({
         port,
@@ -61,16 +65,21 @@ export function startServer({
             rootDir,
             store,
             verify,
+            log,
             corsOrigin,
             maxUploadBytes,
             downloadUrlTtl,
         }),
 
-        fetch() {
-            return new Response(Bun.file(join(rootDir, "index.html")), {
-                headers: { "Content-Type": "text/html" },
-            });
-        },
+        // Everything else gets the upload page.
+        fetch: withRequestLog(
+            log,
+            "*",
+            () =>
+                new Response(Bun.file(join(rootDir, "index.html")), {
+                    headers: { "Content-Type": "text/html" },
+                }),
+        ),
 
         development: {
             hmr: true,
@@ -80,6 +89,7 @@ export function startServer({
 }
 
 if (import.meta.main) {
-    const server = startServer();
-    console.log(`Server running at ${server.url}`);
+    const log = createLogger({ service: "blob" });
+    const server = startServer({ log });
+    log.info("listening", { port: server.port });
 }
