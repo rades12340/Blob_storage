@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import spec from "../openapi.yaml";
+import { docsRoutes } from "./docs";
+import { createLogger } from "./log";
 import { createRoutes } from "./routes";
 import { createMemoryStore } from "./storage";
 
@@ -10,7 +12,8 @@ const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 const routes = createRoutes({
     rootDir: ".",
     store: createMemoryStore(),
-    verify: async () => null,
+    verify: async () => ({ reason: "missing" }),
+    log: createLogger({ service: "blob", write: () => {} }),
     corsOrigin: "http://app.test",
     maxUploadBytes: 1024,
     downloadUrlTtl: 60,
@@ -38,11 +41,11 @@ test("the spec documents exactly the routes the server has", () => {
 });
 
 test("serves the spec as JSON and a Swagger UI page", async () => {
-    const json = await routes["/openapi.json"].GET();
+    const json = await docsRoutes["/openapi.json"].GET();
     expect(json.status).toBe(200);
     expect((await json.json()).openapi).toStartWith("3.1");
 
-    const page = await routes["/docs"].GET();
+    const page = await docsRoutes["/docs"].GET();
     expect(page.headers.get("content-type")).toContain("text/html");
     expect(await page.text()).toContain("SwaggerUIBundle");
 });

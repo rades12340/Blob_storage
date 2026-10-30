@@ -34,20 +34,22 @@ Bun loads `.env` automatically, and `.env` is ignored by git.
 | `AUTH_JWKS_URL` | `$AUTH_ISSUER/.well-known/jwks.json` | Where the public keys are fetched from (cached). |
 | `AUTH_AUDIENCE` | `blob_storage` | Expected `aud` of access tokens. |
 | `CORS_ORIGIN` | `http://localhost:5173` | Browser frontend allowed to call the API. |
+| `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. Lower levels are dropped (see [Logging](#logging)). |
 
 ## Project layout
 
 | Path | What it is |
 | --- | --- |
-| `src/app.ts` | `Bun.serve()` server exported as `startServer({ port, store, verify, corsOrigin, maxUploadBytes, downloadUrlTtl })`. Any unmatched path serves `index.html`. |
+| `src/app.ts` | `Bun.serve()` server exported as `startServer({ port, store, verify, log, corsOrigin, maxUploadBytes, downloadUrlTtl })`. Any unmatched path serves `index.html`. |
 | `src/routes.ts` | Route table for the server: `/styles.css` and the file upload/download API (see below). |
+| `src/log.ts`, `src/requestLog.ts` | JSON line logger (`createLogger`), and the wrapper that gives each request an id and writes its access line (see [Logging](#logging)). |
 | `src/storage.ts` | `FileStore` interface with an S3 implementation (`createS3Store`, using Bun's built-in `S3Client`) and an in-memory one for tests. `fileKey(owner, id)` builds `files/<owner>/<id>`. |
 | `Dockerfile`, `compose.yaml` | Container image and the local Docker stack (see [Run with Docker](#run-with-docker)). |
 | `openapi.yaml`, `src/docs.ts` | OpenAPI spec and the `/docs` + `/openapi.json` routes. `src/openapi.test.ts` fails if a route is added or removed without updating the spec. |
 | `src/auth.ts` | `createVerifier(...)`: checks the `Authorization: Bearer` JWT against auth_service's public keys. |
 | `index.html`, `styles.css` | Static "Six things in a row" demo page (a row of six items plus a stack of avatars). |
 | `src/worker.ts` | Web Worker that counts the prime numbers up to a given `limit` and posts back `{ limit, primes, ms }`. Nothing uses it yet. |
-| `src/app.test.ts` | End-to-end tests for upload, download links, size limit, storage errors, token checks, file ownership and CORS. Uses the in-memory store and signs its own tokens, so neither S3 nor auth_service needs to run. |
+| `src/app.test.ts` | End-to-end tests for upload, download links, size limit, storage errors, token checks, file ownership, CORS and the log lines (captured through the injected logger). Uses the in-memory store and signs its own tokens, so neither S3 nor auth_service needs to run. |
 | `context/summarize.md` | Notes summarizing the work done in this repo so far. |
 | `.husky/`, `.github/workflows/ci.yml` | Git hooks and CI (see [Checks](#checks)). |
 
@@ -175,6 +177,38 @@ MAX_UPLOAD_BYTES=2000000 E2E_S3_URL=http://localhost:9090 bun run e2e
 ```
 
 `E2E_AUTH_URL` and `E2E_BLOB_URL` override the default ports. S3Mock doesn't check signatures, so this doesn't prove that download links expire.
+
+## Logging
+
+The server writes one JSON object per line to stdout, in the same format as auth_service and the API gateway:
+
+```json
+{"time":"2026-10-30T12:00:00.000Z","level":"info","service":"blob","message":"request","requestId":"6f1c…","method":"GET","route":"/download/:id","status":200,"ms":4,"userId":"42"}
+```
+
+Every line has `time` (ISO 8601), `level`, `service` (`"blob"`) and `message`. Lines written while serving a request also have `requestId`.
+
+**Request ids.** The server reads `X-Request-Id` (the API gateway sends one). If it's missing or doesn't match `^[A-Za-z0-9._-]{1,128}$`, it generates a UUID. The id goes on every log line for that request and back in the `X-Request-Id` response header, including on errors and `OPTIONS`, so a client can quote it when reporting a problem.
+
+**`LOG_LEVEL`** is `debug`, `info` (default), `warn` or `error`. Lines below it are dropped.
+
+| Level | Message | Fields |
+| --- | --- | --- |
+| info | `listening` | `port` (at startup) |
+| info | `request` | `method`, `route` (the pattern such as `/download/:id`, never the URL or query string), `status`, `ms`, plus `userId` when authenticated. One per request. |
+| info | `file uploaded` | `fileId`, `size`, `type`, `userId` |
+| warn | `upload rejected` | `reason` (`too large`, `missing file` or `bad form`), `userId`, and `size` when too large |
+| debug | `files listed` | `count`, `userId` |
+| info | `download link issued` | `fileId`, `userId`, `expiresAt` |
+| info | `file not found` | `fileId`, `userId` |
+| warn | `auth failed` | `reason`: `missing`, `malformed`, `expired`, `invalid signature`, `wrong audience`, `invalid claims` or `key fetch failed` |
+| error | `public key fetch failed` | `error` (auth_service's JWKS couldn't be loaded) |
+| error | `storage request failed` | `operation` (`put`, `get` or `list`), `error` |
+| error | `unhandled error` | `error` |
+
+Never logged: the `Authorization` header, cookies, tokens, download URLs (their signature is a credential), S3 keys and query strings.
+
+In Docker, `compose.yaml` sets `LOG_LEVEL: info` and rotates the container's logs (`json-file`, 3 × 10 MB). Read them with `docker compose logs -f blob`, or filter with `jq`, e.g. `docker compose logs --no-log-prefix blob | jq 'select(.requestId == "…")'`.
 
 ## Using the prime worker
 
