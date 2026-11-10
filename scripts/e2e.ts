@@ -214,5 +214,40 @@ if (S3_URL) {
     );
 }
 
+// --- erasure ---
+const remove = (token: string, path: string) =>
+    fetch(`${BLOB}${path}`, {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${token}` },
+    });
+check(
+    "bob deletes alice's file",
+    404,
+    (await remove(bobToken, `/files/${record.id}`)).status,
+);
+check(
+    "DELETE /files/:id",
+    204,
+    (await remove(aliceToken, `/files/${record.id}`)).status,
+);
+check(
+    "deleted file is no longer listed",
+    false,
+    (await listIds(aliceToken)).includes(record.id),
+);
+check("presigned link stops working", false, (await fetch(url)).ok);
+if (S3_URL) {
+    const key = `${S3_URL}/${S3_BUCKET}/files/${aliceId}/${record.id}`;
+    check(
+        "S3 no longer has the file",
+        404,
+        (await fetch(key, { method: "HEAD" })).status,
+    );
+}
+await upload(aliceToken, tiny, "a.bin");
+const eraseAll = await remove(aliceToken, "/files");
+check("DELETE /files", 200, eraseAll.status);
+check("DELETE /files leaves nothing", 0, (await listIds(aliceToken)).length);
+
 console.log(failed ? `\n${failed} check(s) failed` : "\nAll checks passed");
 process.exit(failed ? 1 : 0);

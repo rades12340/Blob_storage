@@ -14,6 +14,9 @@ export type FileStore = {
     readJson<T>(key: string): Promise<T | null>;
     // Every key that starts with `prefix`.
     list(prefix: string): Promise<string[]>;
+    // Removing a key that doesn't exist is not an error, so a delete that
+    // failed halfway can simply be retried.
+    remove(key: string): Promise<void>;
     signedUrl(key: string, expiresIn: number): string;
 };
 
@@ -53,6 +56,9 @@ export function createS3Store(
             } while (continuationToken);
             return keys;
         },
+        async remove(key) {
+            await client.unlink(key);
+        },
         signedUrl(key, expiresIn) {
             return presignClient.presign(key, { expiresIn, method: "GET" });
         },
@@ -74,6 +80,9 @@ export function createMemoryStore() {
         },
         async list(prefix) {
             return [...objects.keys()].filter((key) => key.startsWith(prefix));
+        },
+        async remove(key) {
+            objects.delete(key);
         },
         signedUrl(key, expiresIn) {
             return `memory://${key}?expiresIn=${expiresIn}`;

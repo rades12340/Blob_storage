@@ -62,6 +62,8 @@ Full reference with request/response schemas: **http://localhost:3000/docs** (Sw
 | `POST /upload` | Multipart form with a `file` field. Stores the file in S3 as owned by the token's user. Returns `{ id, ownerId, name, size, type, sha256, createdAt }`. `413` if the file is over `MAX_UPLOAD_BYTES`. |
 | `GET /files` | Returns `{ files: [...] }`: every file the caller uploaded (same fields as the upload response), newest first. |
 | `GET /download/:id` | Returns `{ url, expiresAt, name, size, type, sha256 }`, where `url` is a presigned S3 link that downloads the file and expires after `DOWNLOAD_URL_TTL` seconds. `404` if the id is unknown or the file belongs to another user. |
+| `DELETE /files/:id` | Permanently removes the file and its record (`204`). Earlier download links stop working. `404` if the id is unknown or the file belongs to another user. |
+| `DELETE /files` | Erases every file the caller owns, for GDPR's right to erasure, and returns `{ deleted }`. auth_service calls it with the user's token when an account is deleted. Safe to retry. |
 
 All three routes need `Authorization: Bearer <access token>` and return `401` without a valid one. If S3 can't be reached they return `502`.
 
@@ -201,9 +203,12 @@ Every line has `time` (ISO 8601), `level`, `service` (`"blob"`) and `message`. L
 | debug | `files listed` | `count`, `userId` |
 | info | `download link issued` | `fileId`, `userId`, `expiresAt` |
 | info | `file not found` | `fileId`, `userId` |
+| info | `file deleted` | `fileId`, `size`, `userId` |
+| info | `all files deleted` | `count`, `userId` (`DELETE /files`) |
+| error | `erasure incomplete` | `deleted` (records removed before the failure), `userId`. Retry `DELETE /files` to finish. |
 | warn | `auth failed` | `reason`: `missing`, `malformed`, `expired`, `invalid signature`, `wrong audience`, `invalid claims` or `key fetch failed` |
 | error | `public key fetch failed` | `error` (auth_service's JWKS couldn't be loaded) |
-| error | `storage request failed` | `operation` (`put`, `get` or `list`), `error` |
+| error | `storage request failed` | `operation` (`put`, `get`, `list` or `delete`), `error` |
 | error | `unhandled error` | `error` |
 
 Never logged: the `Authorization` header, cookies, tokens, download URLs (their signature is a credential), S3 keys and query strings.
