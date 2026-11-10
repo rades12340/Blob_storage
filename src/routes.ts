@@ -40,7 +40,7 @@ export function createRoutes({
         "Access-Control-Allow-Origin": corsOrigin,
         "Access-Control-Allow-Headers":
             "Authorization, Content-Type, X-Request-Id",
-        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
         "Access-Control-Expose-Headers": "X-Request-Id",
         Vary: "Origin",
     };
@@ -59,6 +59,14 @@ export function createRoutes({
 
     const preflight = () =>
         new Response(null, { status: 204, headers: corsHeaders });
+
+    // Bytes go first and the record last, the reverse of an upload. If a
+    // step fails the record is still listed, so the user can retry; a
+    // record never outlives its bytes unnoticed.
+    async function removeFile(key: string) {
+        await store.remove(key);
+        await store.remove(`${key}.json`);
+    }
 
     // Runs the handler only for a valid access token, and adds CORS headers
     // to whatever it returns.
@@ -213,6 +221,67 @@ export function createRoutes({
                 ctx.log.debug("files listed", { count: files.length, userId });
                 return Response.json({ files });
             }),
+            // Erases everything the caller has stored (GDPR right to
+            // erasure). auth_service calls this with the user's own token
+            // when an account is deleted.
+            DELETE: withAuth(async (_request: Request, ctx) => {
+                const { userId } = ctx;
+                let deleted = 0;
+                try {
+                    const keys = await store.list(fileKey(userId, ""));
+                    const records = keys.filter((key) => key.endsWith(".json"));
+                    const recordSet = new Set(records);
+                    // Orphaned bytes (an upload that failed before its
+                    // record was written) are personal data too.
+                    for (const key of keys) {
+                        if (!recordSet.has(key)) await store.remove(key);
+                    }
+                    for (const key of records) {
+                        await store.remove(key);
+                        deleted++;
+                    }
+                } catch (error) {
+                    ctx.log.error("erasure incomplete", { deleted, userId });
+                    return storageUnavailable(ctx, "delete", error);
+                }
+                ctx.log.info("all files deleted", { count: deleted, userId });
+                return Response.json({ deleted });
+            }),
+        }),
+
+        "/files/:id": logRoute(log, "/files/:id", {
+            OPTIONS: preflight,
+            DELETE: withAuth(
+                async (request: Bun.BunRequest<"/files/:id">, ctx) => {
+                    const { userId } = ctx;
+                    const { id } = request.params;
+                    // As with downloads, someone else's file is a 404.
+                    let meta: StoredFile | null = null;
+                    try {
+                        if (idPattern.test(id)) {
+                            meta = await store.readJson<StoredFile>(
+                                `${fileKey(userId, id)}.json`,
+                            );
+                        }
+                        if (meta) await removeFile(fileKey(userId, id));
+                    } catch (error) {
+                        return storageUnavailable(ctx, "delete", error);
+                    }
+                    if (!meta) {
+                        ctx.log.info("file not found", { fileId: id, userId });
+                        return Response.json(
+                            { error: "Not found" },
+                            { status: 404 },
+                        );
+                    }
+                    ctx.log.info("file deleted", {
+                        fileId: id,
+                        size: meta.size,
+                        userId,
+                    });
+                    return new Response(null, { status: 204 });
+                },
+            ),
         }),
 
         "/download/:id": logRoute(log, "/download/:id", {

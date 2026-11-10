@@ -308,6 +308,116 @@ test("users can't download each other's files", async () => {
     server.stop(true);
 });
 
+test("deleting a file removes its bytes and record", async () => {
+    const { store, base, find } = setup();
+    const token = await signToken("user-1");
+    const { id } = await (
+        await upload(base, new Uint8Array([1, 2, 3]), token)
+    ).json();
+    const keep = await (
+        await upload(base, new Uint8Array([4]), token, "keep.bin")
+    ).json();
+
+    const response = await fetch(`${base}/files/${id}`, {
+        method: "DELETE",
+        headers: bearer(token),
+    });
+
+    expect(response.status).toBe(204);
+    expect(store.objects.has(fileKey("user-1", id))).toBe(false);
+    expect(store.objects.has(`${fileKey("user-1", id)}.json`)).toBe(false);
+    const { files } = await (
+        await fetch(`${base}/files`, { headers: bearer(token) })
+    ).json();
+    expect(files.map((file: { id: string }) => file.id)).toEqual([keep.id]);
+    expect(find("file deleted")).toMatchObject([
+        { fileId: id, size: 3, userId: "user-1" },
+    ]);
+
+    const again = await fetch(`${base}/files/${id}`, {
+        method: "DELETE",
+        headers: bearer(token),
+    });
+    expect(again.status).toBe(404);
+});
+
+test("users can't delete each other's files", async () => {
+    const { store, base } = setup();
+    const owner = await signToken("owner");
+    const other = await signToken("other");
+    const { id } = await (
+        await upload(base, new Uint8Array([9]), owner)
+    ).json();
+
+    const response = await fetch(`${base}/files/${id}`, {
+        method: "DELETE",
+        headers: bearer(other),
+    });
+
+    expect(response.status).toBe(404);
+    expect(store.objects.has(fileKey("owner", id))).toBe(true);
+});
+
+test("deleting needs a valid token", async () => {
+    const { base } = setup();
+    const response = await fetch(`${base}/files/${crypto.randomUUID()}`, {
+        method: "DELETE",
+    });
+    expect(response.status).toBe(401);
+});
+
+test("DELETE /files erases everything the caller owns and nothing else", async () => {
+    const { store, base, find } = setup();
+    const token = await signToken("user-1");
+    const other = await signToken("user-2");
+    await upload(base, new Uint8Array([1]), token);
+    await upload(base, new Uint8Array([2]), token);
+    await upload(base, new Uint8Array([3]), other);
+    // Bytes left behind by an upload whose record was never written.
+    await store.put(fileKey("user-1", crypto.randomUUID()), "orphan", {
+        type: "text/plain",
+    });
+
+    const response = await fetch(`${base}/files`, {
+        method: "DELETE",
+        headers: bearer(token),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ deleted: 2 });
+    expect(await store.list(fileKey("user-1", ""))).toEqual([]);
+    expect(await store.list(fileKey("user-2", ""))).toHaveLength(2);
+    expect(find("all files deleted")).toMatchObject([
+        { count: 2, userId: "user-1" },
+    ]);
+});
+
+test("returns 502 when a delete can't reach the store", async () => {
+    const { store, base, find } = setup();
+    const token = await signToken("user-1");
+    const { id } = await (
+        await upload(base, new Uint8Array([1]), token)
+    ).json();
+    store.remove = async () => {
+        throw new Error("connection refused");
+    };
+
+    const one = await fetch(`${base}/files/${id}`, {
+        method: "DELETE",
+        headers: bearer(token),
+    });
+    const all = await fetch(`${base}/files`, {
+        method: "DELETE",
+        headers: bearer(token),
+    });
+
+    expect(one.status).toBe(502);
+    expect(all.status).toBe(502);
+    // The record is still there, so the user can see it and retry.
+    expect(store.objects.has(`${fileKey("user-1", id)}.json`)).toBe(true);
+    expect(find("erasure incomplete")).toHaveLength(1);
+});
+
 test("CORS preflight allows the frontend origin and the Authorization header", async () => {
     const { server, base } = setup();
 
@@ -318,6 +428,9 @@ test("CORS preflight allows the frontend origin and the Authorization header", a
     );
     expect(response.headers.get("access-control-allow-headers")).toContain(
         "Authorization",
+    );
+    expect(response.headers.get("access-control-allow-methods")).toContain(
+        "DELETE",
     );
 
     const unauthorized = await upload(base, new Uint8Array([1]));

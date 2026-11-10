@@ -89,6 +89,61 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "502":
           $ref: "#/components/responses/StorageUnavailable"
+    delete:
+      summary: Delete all your files
+      description: |
+        Permanently erases every file the caller has stored, including bytes
+        left behind by a failed upload (GDPR right to erasure). auth_service
+        calls this with the user's token when the account is deleted. Safe to
+        retry: if it fails partway, calling it again removes the rest.
+      operationId: deleteAllFiles
+      responses:
+        "200":
+          description: Everything is gone.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted]
+                properties:
+                  deleted:
+                    type: integer
+                    description: How many files were removed.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "502":
+          $ref: "#/components/responses/StorageUnavailable"
+
+  /files/{id}:
+    delete:
+      summary: Delete a file
+      description: |
+        Permanently removes the file and its record. Download links issued
+        earlier stop working.
+      operationId: deleteFile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The `id` returned by `POST /upload`.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id, malformed id, or a file owned by another user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Not found
+        "502":
+          $ref: "#/components/responses/StorageUnavailable"
 
   /download/{id}:
     get:
